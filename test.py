@@ -73,22 +73,28 @@ validation_generator = test_datagen.flow_from_directory(
 
 model.fit_generator(
         train_generator,
-        steps_per_epoch=500 // batch_size,
+        steps_per_epoch=50 // batch_size,
         epochs=1,
-        validation_data=validation_generator,
+        validation_data= validation_generator,
         validation_steps=200 // batch_size)
 
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import numpy as np
 
-img1 = image.load_img("../TrainingData/Empty/2013-01-17_10_40_06#006.jpg", target_size=(150, 150))
-img2 = image.load_img("../TrainingData/Empty/2013-01-17_10_40_06#007.jpg", target_size=(150, 150))
-img3 = image.load_img("../TrainingData/Occupied/2013-01-17_10_40_06#001.jpg", target_size=(150, 150))
-img4 = image.load_img("../TestingData/2013-02-28_18_40_45#031.jpg", target_size=(150, 150))
+import glob
+images = []
+for filename in glob.glob('../TestingData/*.jpg'): #assuming gif
+    im=image.load_img(filename, target_size=(150,150))
+    images.append(im)
+
+# img1 = image.load_img("../TrainingData/Empty/2013-01-17_10_40_06#006.jpg", target_size=(150, 150))
+# img2 = image.load_img("../TrainingData/Empty/2013-01-17_10_40_06#007.jpg", target_size=(150, 150))
+# img3 = image.load_img("../TrainingData/Occupied/2013-01-17_10_40_06#001.jpg", target_size=(150, 150))
+# img4 = image.load_img("../TestingData/2013-02-28_18_40_45#031.jpg", target_size=(150, 150))
 
 
-images = [img1,img2,img3,img4]
+# images = [img1,img2,img3,img4]
 
 targets = []
 
@@ -107,9 +113,10 @@ for i in range(len(images)):
 
     print(prediction)
     print(result[0][0])
-    ax1 = plt.subplot(1,len(images),i+1)
+    ax1 = plt.subplot(7,5,i+1)
+    
     plt.imshow(images[i])
     ax1.title.set_text(prediction)
     plt.axis('off')
-
+    plt.subplots_adjust(hspace = 0.6   )
 plt.show()
