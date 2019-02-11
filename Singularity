@@ -15,15 +15,3 @@ echo "This gets run when you run the image!"
 
 %post  
 echo "This section happens once after bootstrap to build the image."  
-apt-get update
-apt-get upgrade
-apt-get install python-setuptools
-pip install numpy
-pip install scipy
-pip install Pillow
-pip install opencv-python
-pip install h5py
-pip install matplotlib
-pip install scikit-image
-pip install cython
-pip install keras
