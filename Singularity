@@ -1,17 +1,42 @@
-Bootstrap:docker  
-From:ubuntu:latest  
-
-%labels
-MAINTAINER Vanessasaur
-SPECIES Dinosaur
+Bootstrap: docker
+From: tensorflow/tensorflow:1.8.0-gpu
 
 %environment
-RAWR_BASE=/code
-export RAWR_BASE
+  # use bash as default shell
+  SHELL=/bin/bash
+  export SHELL
+
+%setup
+  # runs on host - the path to the image is $SINGULARITY_ROOTFS
+
+%post
+  # post-setup script
+
+  # load environment variables
+  . /environment
+
+  # use bash as default shell
+  echo 'SHELL=/bin/bash' >> /environment
+
+  # make environment file executable
+  chmod +x /environment
+
+  # default mount paths
+  mkdir /scratch /data 
+
+  # additional packages
+  apt-get update
+  apt-get install -y python-tk
+  apt-get install -y libsm6 libxext6
+  pip install selenium
+  pip install moviepy
+  pip install lmdb
+  pip install opencv-contrib-python
+  pip install cryptography
 
 %runscript
-echo "This gets run when you run the image!" 
+  # executes with the singularity run command
+  # delete this section to use existing docker ENTRYPOINT command
 
-
-%post  
-echo "This section happens once after bootstrap to build the image."  
+%test
+  # test that script is a success
