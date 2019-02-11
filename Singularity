@@ -26,8 +26,7 @@ From:ubuntu:latest
 
   # additional packages
   apt-get update
-  apt-get install -y python-tk
-  apt-get install -y libsm6 libxext6
+  pip install tensorflow-gpu
   pip install numpy
   pip install scipy
   pip install Pillow
