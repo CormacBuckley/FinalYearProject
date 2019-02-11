@@ -17,8 +17,6 @@ echo "This gets run when you run the image!"
 echo "This section happens once after bootstrap to build the image."  
 mkdir -p /code  
 apt-get update
-apt-get install apt-file
-apt-file update
 apt install python3-pip
 pip install numpy
 pip install scipy
