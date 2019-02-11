@@ -28,11 +28,15 @@ From: tensorflow/tensorflow:1.8.0-gpu
   apt-get update
   apt-get install -y python-tk
   apt-get install -y libsm6 libxext6
-  pip install selenium
-  pip install moviepy
-  pip install lmdb
-  pip install opencv-contrib-python
-  pip install cryptography
+  pip install numpy
+  pip install scipy
+  pip install Pillow
+  pip install opencv-python
+  pip install h5py
+  pip install matplotlib
+  pip install scikit-image
+  pip install cython
+  pip install keras
 
 %runscript
   # executes with the singularity run command
