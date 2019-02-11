@@ -15,6 +15,8 @@ echo "This gets run when you run the image!"
 
 %post  
 echo "This section happens once after bootstrap to build the image."  
+apt-get update
+apt-get upgrade
 apt-get install python-setuptools
 pip install numpy
 pip install scipy
