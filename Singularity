@@ -15,7 +15,6 @@ echo "This gets run when you run the image!"
 
 %post  
 echo "This section happens once after bootstrap to build the image."  
-apt install python3-pip
 pip install numpy
 pip install scipy
 pip install Pillow
