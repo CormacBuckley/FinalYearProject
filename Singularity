@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: nvidia/cuda:8.0-cudnn6-runtime-ubuntu16.04
+From: tensorflow/tensorflow:1.8.0-gpu-py3
 
 %environment
   # use bash as default shell
