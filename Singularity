@@ -15,8 +15,6 @@ echo "This gets run when you run the image!"
 
 %post  
 echo "This section happens once after bootstrap to build the image."  
-mkdir -p /code  
-apt-get update
 apt install python3-pip
 pip install numpy
 pip install scipy
@@ -27,5 +25,3 @@ pip install matplotlib
 pip install scikit-image
 pip install cython
 pip install keras
-
-echo "RoooAAAAR"
