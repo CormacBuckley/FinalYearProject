@@ -33,6 +33,7 @@ From: tensorflow/tensorflow:1.8.0-gpu-py3
   apt-get install -y python-opencv
   apt-get install -y libhdf5-dev
   apt-get install -y python-matplotlib
+  apt-get install -y python-skimage
   apt-get install -y build-essential cython3
   apt-get install -y python-pip python-dev build-essential 
   pip install keras
