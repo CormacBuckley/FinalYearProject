@@ -30,7 +30,7 @@ From: tensorflow/tensorflow:1.8.0-gpu-py3
   apt-get install -y libsm6 libxext6 
   apt-get install -y python3-numpy python3-scipy
   apt-get install -y python3-pil
-  apt-get install -y python3-opencv
+  apt-get install -y libopencv-dev python3-opencv
   apt-get install -y libhdf5-dev
   apt-get install -y python3-matplotlib
   apt-get install -y python3-skimage
