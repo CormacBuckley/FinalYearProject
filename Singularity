@@ -1,14 +1,6 @@
 Bootstrap:docker  
 From:ubuntu:latest  
 
-%environment
-  # use bash as default shell
-  SHELL=/bin/bash
-  export SHELL
-
-%setup
-  # runs on host - the path to the image is $SINGULARITY_ROOTFS
-
 %post
   # post-setup script
 
