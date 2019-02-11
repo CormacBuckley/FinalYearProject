@@ -27,15 +27,14 @@ From: tensorflow/tensorflow:1.8.0-gpu-py3
   # additional packages
   apt-get update
   apt-get install -y python-tk
-  apt-get install -y libsm6 libxext6
-  pip install numpy
-  pip install scipy
-  pip install Pillow
-  pip install opencv-python
-  pip install h5py
-  pip install matplotlib
-  pip install scikit-image
-  pip install cython
+  apt-get install -y libsm6 libxext6 
+  apt-get install python3-numpy python3-scipy
+  apt-get install python3-pil
+  apt-get install python-opencv
+  apt-get install libhdf5-dev
+  apt-get build-dep python-matplotlib
+  apt-get install build-essential cython3
+  apt-get install python-pip python-dev build-essential 
   pip install keras
 
 %runscript
