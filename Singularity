@@ -30,12 +30,12 @@ From: tensorflow/tensorflow:1.8.0-gpu-py3
   apt-get install -y libsm6 libxext6 
   apt-get install -y python3-numpy python3-scipy
   apt-get install -y python3-pil
-  apt-get install -y python-opencv
+  apt-get install -y python3-opencv
   apt-get install -y libhdf5-dev
-  apt-get install -y python-matplotlib
-  apt-get install -y python-skimage
+  apt-get install -y python3-matplotlib
+  apt-get install -y python3-skimage
   apt-get install -y build-essential cython3
-  apt-get install -y python-pip python-dev build-essential 
+  apt-get install -y python3-pip python3-dev build-essential 
   pip install keras
 
 %runscript
