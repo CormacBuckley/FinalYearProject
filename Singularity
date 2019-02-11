@@ -1,37 +1,21 @@
 Bootstrap:docker  
 From:ubuntu:latest  
 
-%post
-  # post-setup script
+%labels
+MAINTAINER Vanessasaur
+SPECIES Dinosaur
 
-  # load environment variables
-  . /environment
-
-  # use bash as default shell
-  echo 'SHELL=/bin/bash' >> /environment
-
-  # make environment file executable
-  chmod +x /environment
-
-  # default mount paths
-  mkdir /scratch /data 
-
-  # additional packages
-  apt-get update
-  pip install tensorflow-gpu
-  pip install numpy
-  pip install scipy
-  pip install Pillow
-  pip install opencv-python
-  pip install h5py
-  pip install matplotlib
-  pip install scikit-image
-  pip install cython
-  pip install keras
+%environment
+RAWR_BASE=/code
+export RAWR_BASE
 
 %runscript
-  # executes with the singularity run command
-  # delete this section to use existing docker ENTRYPOINT command
+echo "This gets run when you run the image!" 
+exec /bin/bash /code/rawr.sh "$@"  
 
-%test
-  # test that script is a success
+%post  
+echo "This section happens once after bootstrap to build the image."  
+mkdir -p /code  
+apt-get install vim  
+echo "RoooAAAAR" >> /code/rawr.sh
+chmod u+x /code/rawr.sh  
