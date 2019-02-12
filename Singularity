@@ -36,11 +36,11 @@ From: tensorflow/tensorflow:1.8.0-gpu-py3
   apt-get install -y python3-pip python3-dev build-essential 
   pip3 install keras
   pip3 install opencv-python
-  apt-get install libatlas-base-dev
-  apt-get install libjasper-dev
-  apt-get install libqtgui4
-  apt-get install python3-pyqt5
-  apt-get install libqt4-test
+  apt-get install -y libatlas-base-dev
+  apt-get install -y libjasper-dev
+  apt-get install -y libqtgui4
+  apt-get install -y python3-pyqt5
+  apt-get install -y libqt4-test
   pip3 install scikit-image
 
 %runscript
