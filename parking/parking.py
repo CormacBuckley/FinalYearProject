@@ -282,7 +282,7 @@ def get_ax(rows=1, cols=1, size=8):
 
 
 def train(model):
-    
+    epochs = 60
     """Train the model."""
     # Training dataset.
     dataset_train = ParkingDataset()
@@ -311,14 +311,34 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=60,
+                epochs=epochs,
                 layers='heads')
+    history = model.keras_model.history.history
 
     model.train(dataset_train, dataset_val, 
             learning_rate=config.LEARNING_RATE / 10,
-            epochs=60, 
+            epochs=epochs, 
             layers="all")
 
+    new_history = model.keras_model.history.history
+    for k in new_history: history[k] = history[k] + new_history[k]
+
+    plt.figure(figsize=(17,5))
+
+    plt.subplot(131)
+    plt.plot(epochs, history["loss"], label="Train loss")
+    plt.plot(epochs, history["val_loss"], label="Valid loss")
+    plt.legend()
+    plt.subplot(132)
+    plt.plot(epochs, history["mrcnn_class_loss"], label="Train class ce")
+    plt.plot(epochs, history["val_mrcnn_class_loss"], label="Valid class ce")
+    plt.legend()
+    plt.subplot(133)
+    plt.plot(epochs, history["mrcnn_bbox_loss"], label="Train box loss")
+    plt.plot(epochs, history["val_mrcnn_bbox_loss"], label="Valid box loss")
+    plt.legend()
+
+    plt.show()
 # Save weights
 # Typically not needed because callbacks save after every epoch
 # Uncomment to save manually
