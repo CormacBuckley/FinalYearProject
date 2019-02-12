@@ -347,8 +347,8 @@ def train(model):
 
 
     class InferenceConfig(ParkingConfig):
-        GPU_COUNT = 1
-        IMAGES_PER_GPU = 1
+        GPU_COUNT = 2
+        IMAGES_PER_GPU = 2
 
     inference_config = InferenceConfig()
 
