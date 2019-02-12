@@ -34,8 +34,7 @@ From: tensorflow/tensorflow:1.8.0-gpu-py3
   apt-get install -y python3-matplotlib
   apt-get install -y build-essential cython3
   apt-get install -y python3-pip python3-dev build-essential 
-  python3 -m pip uninstall pip && apt install -y python3-pip --reinstall
-  pip3 install keras
+  pip install keras
   pip3 install opencv-python
   apt-get install -y libatlas-base-dev
   apt-get install -y libjasper-dev
