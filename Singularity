@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: tensorflow/tensorflow:1.8.0-gpu-py3
+From: tensorflow/tensorflow:1.9.0-gpu-py3
 
 %environment
   # use bash as default shell
@@ -34,7 +34,7 @@ From: tensorflow/tensorflow:1.8.0-gpu-py3
   apt-get install -y python3-matplotlib
   apt-get install -y build-essential cython3
   apt-get install -y python3-pip python3-dev build-essential 
-  pip install keras
+  pip install Keras==2.1.3
   pip install opencv-python
   apt-get install -y libatlas-base-dev
   apt-get install -y libjasper-dev
