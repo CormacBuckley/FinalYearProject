@@ -23,13 +23,17 @@ import random
 import math
 import re
 import time
+import datetime
 import numpy as np
 import cv2
 import matplotlib
 import matplotlib.pyplot as plt
 import json
 import skimage.draw
-
+from keras.callbacks import TensorBoard
+from time import time
+import imgaug as ia
+from imgaug import augmenters as iaa
 # Root directory of the project
 ROOT_DIR = os.path.abspath("../")
 
@@ -64,16 +68,16 @@ class ParkingConfig(Config):
 
     # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.
-    IMAGES_PER_GPU = 2
+    IMAGES_PER_GPU = 1
 
     # Number of classes (including background)
-    NUM_CLASSES = 1 + 2 # Empty + Occupied + Background
+    NUM_CLASSES = 3 + 1 # Empty + Occupied + Background
 
     # Number of training steps per epoch
-    STEPS_PER_EPOCH = 100
+    STEPS_PER_EPOCH = 5
 
-    # Skip detections with < 90% confidence
-    DETECTION_MIN_CONFIDENCE = 0.65
+    # Skip detections with < 80% confidence
+    DETECTION_MIN_CONFIDENCE = 0.1
 
     # Add image padding
     IMAGE_PADDING = True
@@ -83,7 +87,7 @@ class ParkingConfig(Config):
     # You can also provide a callable that should have the signature
     # of model.resnet_graph. If you do so, you need to supply a callable
     # to COMPUTE_BACKBONE_SHAPE as well
-    BACKBONE = "resnet101"
+    BACKBONE = "resnet50"
 
     # Only useful if you supply a callable to BACKBONE. Should compute
     # the shape of each layer of the FPN Pyramid.
@@ -94,7 +98,7 @@ class ParkingConfig(Config):
     # are based on a Resnet101 backbone.
     BACKBONE_STRIDES = [4, 8, 16, 32, 64]
 config = ParkingConfig()
-config.display()
+# config.display()
 
 
 ############################################################
@@ -137,7 +141,7 @@ class ParkingDataset(utils.Dataset):
 
         # The VIA tool saves images in the JSON even if they don't have any
         # annotations. Skip unannotated images.
-        # annotations = [a for a in annotations if a['regions']]
+        annotations = [a for a in annotations if a['regions']]
 
         # Add images
         for a in annotations:
@@ -162,6 +166,8 @@ class ParkingDataset(utils.Dataset):
             image = skimage.io.imread(image_path)
             height, width = image.shape[:2]
 
+            #Could improve this step to benefit efficiency???
+
         self.add_image(
             "parking",
             image_id=a['filename'],  # use file name as a unique image id
@@ -169,13 +175,6 @@ class ParkingDataset(utils.Dataset):
             width=width, height=height,
             polygons=polygons,
             names = names)
-
-        # self.add_image(
-        #     "Empty",
-        #     image_id=a['filename'],  # use file name as a unique image id
-        #     path=image_path,
-        #     width=width, height=height,
-        #     polygons=polygons)
 
     def load_mask(self, image_id):
         """Generate instance masks for parking of the given image ID.
@@ -187,7 +186,6 @@ class ParkingDataset(utils.Dataset):
 
         info = self.image_info[image_id]
         class_names = info['names']
-        # print(class_names)
         mask = np.zeros([info["height"], info["width"], len(info["polygons"])],
                         dtype=np.uint8)
         for i, p in enumerate(info["polygons"]):
@@ -245,28 +243,136 @@ def get_colors_for_class_ids(class_ids):
          colors.append((0.4,0.7,0))
     return colors
 
-def predict():
+def apply_mask(image, mask, color, alpha=0.5):
+    """apply mask to image"""
+    for n, c in enumerate(color):
+        image[:, :, n] = np.where(
+            mask == 1,
+            image[:, :, n] * (1 - alpha) + alpha * c,
+            image[:, :, n]
+        )
+    return image
 
-    dataset_val = ParkingDataset()
-    dataset_val.load_parking(args.dataset, "val")
-    dataset_val.prepare()
+def im_augs():
+        # random example images
+
+    # Sometimes(0.5, ...) applies the given augmenter in 50% of all cases,
+    # e.g. Sometimes(0.5, GaussianBlur(0.3)) would blur roughly every second image.
+    # Define our sequence of augmentation steps that will be applied to every image
+    # All augmenters with per_channel=0.5 will sample one value _per image_
+    # in 50% of all cases. In all other cases they will sample new values
+    # _per channel_.
+    seq = iaa.Sequential([iaa.Fliplr(0.5), iaa.GaussianBlur((0, 5.0)),iaa.Grayscale(alpha=(0.0, 1.0))
+                ])
+    # show an image with 8*8 augmented versions of image 0
+    return seq
+
+
+def display_instances(image, boxes, masks, ids, names, scores):
+    """
+        take the image and results and apply the mask, box, and Label
+    """
+    n_instances = boxes.shape[0]
+    colors = (get_colors_for_class_ids(ids))
+
+    if not n_instances:
+        print('NO INSTANCES TO DISPLAY')
+    else:
+        assert boxes.shape[0] == masks.shape[-1] == ids.shape[0]
+
+    for i, color in enumerate(colors):
+        if not np.any(boxes[i]):
+            continue
+
+        y1, x1, y2, x2 = boxes[i]
+        label = names[ids[i]]
+        score = scores[i] if scores is not None else None
+        caption = '{} {:.2f}'.format(label, score) if score else label
+        mask = masks[:, :, i]
+
+        image = apply_mask(image, mask, color)
+        image = cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+        image = cv2.putText(
+            image, caption, (x1, y1), cv2.FONT_HERSHEY_COMPLEX, 0.7, color, 2
+        )
+
+    return image
+
+def predictVideo():
+    import cv2
+    dataset_train = ParkingDataset()
+    dataset_train.load_parking(args.dataset, "train")
+    dataset_train.prepare()
+    video_path="../1008937934-preview.mp4"
+    # Video capture
+    vcapture = cv2.VideoCapture(video_path)
+    width = int(vcapture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(vcapture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = vcapture.get(cv2.CAP_PROP_FPS)
+
+    # Define codec and create video writer
+    file_name = "splash_{:%Y%m%dT%H%M%S}.avi".format(datetime.datetime.now())
+    vwriter = cv2.VideoWriter(file_name,
+                                cv2.VideoWriter_fourcc(*'MJPG'),
+                                fps, (width, height))
+
+    count = 0
+    success = True
+    while success:
+        print("frame: ", count)
+        # Read next image
+        success, image = vcapture.read()
+        if success:
+            # Detect objects
+            r = model.detect([image], verbose=0)[0]
+            # Color splash
+            frame = display_instances(image, r['rois'], r['masks'], r['class_ids'], 
+                                 dataset_train.class_names, r['scores']) 
+           
+            # Add image to video writer
+            vwriter.write(frame)
+            count += 1
+    vwriter.release()
+    print("Saved to ", file_name)
+
+
+
+def predict(weights):
+
+    dataset_train = ParkingDataset()
+    dataset_train.load_parking(args.dataset, "train")
+    dataset_train.prepare()
     inference_config = InferenceConfig()
     model = modellib.MaskRCNN(mode="inference", 
                             config=inference_config,
                             model_dir=MODEL_DIR)
-    model_path = os.path.join(MODEL_DIR, "mask_rcnn_parking.h5")
+    model_path = (weights)
     model.load_weights(model_path, by_name=True)
 
-    IMAGE_DIR = os.path.join(ROOT_DIR, "../TestImages/2012-09-12_11_50_46.jpg")
+    IMAGE_DIR = os.path.join(ROOT_DIR, "datasets/parking/train/480591396_750b28392d_o.jpg")
     image = skimage.io.imread(IMAGE_DIR)
-
     # Run detection
-    results = model.detect([image], verbose=1)
+    # blurer = imgaug.augmenters.GaussianBlur(5.0)
+    # image = blurer.augment_image(image)
+    results = model.detect([image], verbose=2) 
 
     r = results[0]
+#     mrcnn = model.run_graph([image], [
+#     ("proposals", model.keras_model.get_layer("ROI").output),
+#     ("probs", model.keras_model.get_layer("mrcnn_class").output),
+#     ("deltas", model.keras_model.get_layer("mrcnn_bbox").output),
+#     ("masks", model.keras_model.get_layer("mrcnn_mask").output),
+#     ("detections", model.keras_model.get_layer("mrcnn_detection").output),
+# ])
+#     det_class_ids = mrcnn['detections'][0, :, 4].astype(np.int32)
+#     det_count = np.where(det_class_ids == 0)[0][0]
+#     det_class_ids = det_class_ids[:det_count]
 
+    # print("{} detections: {}".format(
+    # det_count, np.array(dataset_train.class_names)[det_class_ids]))
     visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'], 
-                                 dataset_val.class_names, r['scores'], colors=get_colors_for_class_ids(r['class_ids']))
+                                 dataset_train.class_names, r['scores'], colors=get_colors_for_class_ids(r['class_ids']))
+    return r
 
 
 def get_ax(rows=1, cols=1, size=8):
@@ -282,7 +388,7 @@ def get_ax(rows=1, cols=1, size=8):
 
 
 def train(model):
-    epochs = 60
+    # tensorboard = TensorBoard(log_dir='logs/{}'.format(time()))
     """Train the model."""
     # Training dataset.
     dataset_train = ParkingDataset()
@@ -294,7 +400,8 @@ def train(model):
     dataset_val.load_parking(args.dataset, "val")
     dataset_val.prepare()
 
-
+    augmentation = iaa.Sequential([iaa.Fliplr(0.5), iaa.GaussianBlur((0, 5.0)),iaa.Grayscale(alpha=(0.0, 1.0))
+                ])
     # Load and display random samples
     # "2013-04-13_09_15_03#034.jpg"
     # image_ids = np.random.choice(dataset_train.image_ids,1)
@@ -311,156 +418,21 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=epochs,
-                layers='heads')
-    history = model.keras_model.history.history
+                epochs=5,
+                layers="heads")
+    
+    # custom_callbacks=[tensorboard]
+    # model.train(dataset_train, dataset_val, 
+    #         learning_rate=1e-6 / 10,
+    #         epochs=7, 
+    #         layers="all",
+    #         augmentation = augmentation)
 
-    model.train(dataset_train, dataset_val, 
-            learning_rate=config.LEARNING_RATE / 10,
-            epochs=epochs, 
-            layers="all")
-
-    new_history = model.keras_model.history.history
-    for k in new_history: history[k] = history[k] + new_history[k]
-
-    plt.figure(figsize=(17,5))
-
-    plt.subplot(131)
-    plt.plot(epochs, history["loss"], label="Train loss")
-    plt.plot(epochs, history["val_loss"], label="Valid loss")
-    plt.legend()
-    plt.subplot(132)
-    plt.plot(epochs, history["mrcnn_class_loss"], label="Train class ce")
-    plt.plot(epochs, history["val_mrcnn_class_loss"], label="Valid class ce")
-    plt.legend()
-    plt.subplot(133)
-    plt.plot(epochs, history["mrcnn_bbox_loss"], label="Train box loss")
-    plt.plot(epochs, history["val_mrcnn_bbox_loss"], label="Valid box loss")
-    plt.legend()
-
-    plt.show()
 # Save weights
 # Typically not needed because callbacks save after every epoch
 # Uncomment to save manually
     model_path = os.path.join(MODEL_DIR, "mask_rcnn_parking.h5")
     model.keras_model.save_weights(model_path)
-
-
-    class InferenceConfig(ParkingConfig):
-        GPU_COUNT = 2
-        IMAGES_PER_GPU = 2
-
-    inference_config = InferenceConfig()
-
-    # Recreate the model in inference mode
-    model = modellib.MaskRCNN(mode="inference", 
-                            config=inference_config,
-                            model_dir=MODEL_DIR)
-
-    # Get path to saved weights
-    # Either set a specific path or find last trained weights
-    # model_path = os.path.join(ROOT_DIR, ".h5 file name here")
-    model_path = model.find_last()
-
-    # Load trained weights
-    # print("Loading weights from ", model_path)
-    # model.load_weights(model_path, by_name=True)
-
-
-
-
-    # image_id = random.choice(dataset_val.image_ids)
-    # original_image, image_meta, gt_class_id, gt_bbox, gt_mask =    modellib.load_image_gt(dataset_val, inference_config, 
-    #                         image_id, use_mini_mask=False)
-
-    # log("original_image", original_image)
-    # log("image_meta", image_meta)
-    # log("gt_class_id", gt_class_id)
-    # log("gt_bbox", gt_bbox)
-    # log("gt_mask", gt_mask)
-
-    # visualize.display_instances(original_image, gt_bbox, gt_mask, gt_class_id, 
-    #                             dataset_train.class_names, figsize=(8, 8))
-
-
-    # results = model.detect([original_image], verbose=1)
-
-    # r = results[0]
-    # visualize.display_instances(original_image, r['rois'], r['masks'], r['class_ids'], 
-    #                             dataset_val.class_names, r['scores'], colors=get_colors_for_class_ids(r['class_ids']), ax= get_ax())
-
-
-
-# def color_splash(image, mask):
-#     """Apply color splash effect.
-#     image: RGB image [height, width, 3]
-#     mask: instance segmentation mask [height, width, instance count]
-
-#     Returns result image.
-#     """
-#     # Make a grayscale copy of the image. The grayscale copy still
-#     # has 3 RGB channels, though.
-#     gray = skimage.color.gray2rgb(skimage.color.rgb2gray(image)) * 255
-#     # Copy color pixels from the original color image where mask is set
-#     if mask.shape[-1] > 0:
-#         # We're treating all instances as one, so collapse the mask into one layer
-#         mask = (np.sum(mask, -1, keepdims=True) >= 1)
-#         splash = np.where(mask, image, gray).astype(np.uint8)
-#     else:
-#         splash = gray.astype(np.uint8)
-#     return splash
-
-
-# def detect_and_color_splash(model, image_path=None, video_path=None):
-    # assert image_path or video_path
-
-    # # Image or video?
-    # if image_path:
-    #     # Run model detection and generate the color splash effect
-    #     print("Running on {}".format(args.image))
-    #     # Read image
-    #     image = skimage.io.imread(args.image)
-    #     # Detect objects
-    #     r = model.detect([image], verbose=1)[0]
-    #     # Color splash
-    #     splash = color_splash(image, r['masks'])
-    #     # Save output
-    #     file_name = "splash_{:%Y%m%dT%H%M%S}.png".format(datetime.datetime.now())
-    #     skimage.io.imsave(file_name, splash)
-    # elif video_path:
-    #     import cv2
-    #     # Video capture
-    #     vcapture = cv2.VideoCapture(video_path)
-    #     width = int(vcapture.get(cv2.CAP_PROP_FRAME_WIDTH))
-    #     height = int(vcapture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    #     fps = vcapture.get(cv2.CAP_PROP_FPS)
-
-    #     # Define codec and create video writer
-    #     file_name = "splash_{:%Y%m%dT%H%M%S}.avi".format(datetime.datetime.now())
-    #     vwriter = cv2.VideoWriter(file_name,
-    #                               cv2.VideoWriter_fourcc(*'MJPG'),
-    #                               fps, (width, height))
-
-    #     count = 0
-    #     success = True
-    #     while success:
-    #         print("frame: ", count)
-    #         # Read next image
-    #         success, image = vcapture.read()
-    #         if success:
-    #             # OpenCV returns images as BGR, convert to RGB
-    #             image = image[..., ::-1]
-    #             # Detect objects
-    #             r = model.detect([image], verbose=0)[0]
-    #             # Color splash
-    #             splash = color_splash(image, r['masks'])
-    #             # RGB -> BGR to save image to video
-    #             splash = splash[..., ::-1]
-    #             # Add image to video writer
-    #             vwriter.write(splash)
-    #             count += 1
-    #     vwriter.release()
-    # print("Saved to ", file_name)
 
 
 ############################################################
@@ -555,7 +527,11 @@ if __name__ == '__main__':
     if args.command == "train":
         train(model)
     elif args.command == "predict":
-        predict()
+        predict(args.weights)
+    elif args.command == "predict":
+        predict(args.weights)
+    elif args.command == "aug":
+        display_augs()
     else:
         print("'{}' is not recognized. "
               "Use 'train' or 'splash'".format(args.command))
