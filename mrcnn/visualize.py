@@ -12,6 +12,7 @@ import sys
 import random
 import itertools
 import colorsys
+import datetime
 
 import numpy as np
 from skimage.measure import find_contours
@@ -164,8 +165,10 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             p = Polygon(verts, facecolor="none", edgecolor=color)
             ax.add_patch(p)
     ax.imshow(masked_image.astype(np.uint8))
-    if auto_show:
-        plt.show()
+    plt.savefig('../Results/SaveImageTest/prediction{:%Y%m%dT%H%M%S}.jpg'.format(datetime.datetime.now()))
+    # if auto_show:
+    #     plt.show()
+        
 
 
 def display_differences(image,

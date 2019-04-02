@@ -42,6 +42,8 @@ From: tensorflow/tensorflow:1.9.0-gpu-py3
   apt-get install -y python3-pyqt5
   apt-get install -y libqt4-test
   pip install scikit-image
+  pip install imageio Shapely six
+  pip install imgaug 
 
 %runscript
   # executes with the singularity run command
