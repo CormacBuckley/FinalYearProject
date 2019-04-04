@@ -192,13 +192,6 @@ class ParkingDataset(utils.Dataset):
             # Get indexes of pixels inside the polygon and set them to 1
             rr, cc = skimage.draw.polygon(p['all_points_y'], p['all_points_x'])
             mask[rr, cc, i] = 1
-        # # Handle occlusions
-        # occlusion = np.logical_not(mask[:, :, -1]).astype(np.uint8)
-        # for i in range(count-2, -1, -1):
-        #     mask[:, :, i] = mask[:, :, i] * occlusion
-        #     occlusion = np.logical_and(occlusion, np.logical_not(mask[:, :, i]))
-        # # Map class names to class IDs.
-        # class_ids = np.array([self.class_names.index(s[0]) for s in parking])
         class_ids = np.zeros([len(info["polygons"])])
 
         for i, p in enumerate(class_names):
@@ -245,31 +238,24 @@ def get_colors_for_class_ids(class_ids):
 
 def apply_mask(image, mask, color, alpha=0.5):
     """apply mask to image"""
-    for n, c in enumerate(color):
-        image[:, :, n] = np.where(
-            mask == 1,
-            image[:, :, n] * (1 - alpha) + alpha * c,
-            image[:, :, n]
-        )
+    for c in range(3):
+        image[:, :, c] = np.where(mask == 1,
+                                  image[:, :, c] *
+                                  (1 - alpha) + alpha * color[c] * 255,
+                                  image[:, :, c])
     return image
+
 
 def im_augs():
         # random example images
     IMAGE_DIR = os.path.join(ROOT_DIR, "datasets/parking/val/40287274793_b5e611b015_o.jpg")
     image = skimage.io.imread(IMAGE_DIR)
-    # Sometimes(0.5, ...) applies the given augmenter in 50% of all cases,
-    # e.g. Sometimes(0.5, GaussianBlur(0.3)) would blur roughly every second image.
-    # Define our sequence of augmentation steps that will be applied to every image
-    # All augmenters with per_channel=0.5 will sample one value _per image_
-    # in 50% of all cases. In all other cases they will sample new values
-    # _per channel_.
-    seq =  iaa.Sequential([
+    seq =  iaa.OneOf([
     iaa.Multiply((0.2, 1.5)),
     iaa.GaussianBlur(sigma=(1.0, 5.0)),
     iaa.Affine(scale=(0.5, 1.5)),
     iaa.Affine(scale={"x": (0.5, 1.5), "y": (0.5, 1.5)}),
     ])
-    # show an image with 8*8 augmented versions of image 0
     images_aug = seq.augment_image(image)
     plt.figure()
     plt.imshow(images_aug) 
@@ -281,23 +267,27 @@ def display_instances(image, boxes, masks, ids, names, scores):
         take the image and results and apply the mask, box, and Label
     """
     n_instances = boxes.shape[0]
-    colors = (get_colors_for_class_ids(ids))
+    colors = get_colors_for_class_ids(ids)
 
     if not n_instances:
         print('NO INSTANCES TO DISPLAY')
     else:
         assert boxes.shape[0] == masks.shape[-1] == ids.shape[0]
 
-    for i, color in enumerate(colors):
+    for i, test in enumerate(colors):
         if not np.any(boxes[i]):
             continue
 
         y1, x1, y2, x2 = boxes[i]
         label = names[ids[i]]
         score = scores[i] if scores is not None else None
+        
         caption = '{} {:.2f}'.format(label, score) if score else label
         mask = masks[:, :, i]
-
+        if label == 'Occupied':
+          color = (0, 0, 1)
+        else:
+          color = (0,1,0)
         image = apply_mask(image, mask, color)
         image = cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
         image = cv2.putText(
@@ -324,7 +314,7 @@ def predictVideo():
     vwriter = cv2.VideoWriter(file_name,
                                 cv2.VideoWriter_fourcc(*'MJPG'),
                                 fps, (width, height))
-
+    start = timer()
     count = 0
     success = True
     while success:
@@ -345,6 +335,11 @@ def predictVideo():
             count += 1
     vwriter.release()
     print("Saved to ", file_name)
+    end = timer()
+    elapsed = end - start
+    
+    print("Total time = ", elapsed)
+    print("Frames analysed per second = ", count/elapsed)
 
 
 
@@ -361,7 +356,7 @@ def predict(weights, loops):
                             model_dir=MODEL_DIR)
     model_path = (weights)
     model.load_weights(model_path, by_name=True)
-    IMAGE_DIR = os.path.join(ROOT_DIR, "TestImages/WhatsApp Image 2019-04-01 at 21.50.34.jpeg")
+    IMAGE_DIR = os.path.join(ROOT_DIR, "datasets/parking/train/IMG_20190218_165352.jpg")
 
     for i in range (0,loops):
         image = skimage.io.imread(IMAGE_DIR)
