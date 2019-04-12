@@ -16,7 +16,7 @@ Usage:
     # Resume training a model that you had trained earlier
     python3 parking.py train --dataset=/path/to/parking/dataset --weights=last
 """
-from timeit import default_timer as timer
+
 import os
 import sys
 import random
@@ -36,7 +36,7 @@ import imgaug as ia
 from imgaug import augmenters as iaa
 # Root directory of the project
 ROOT_DIR = os.path.abspath("../")
-
+from timeit import default_timer as timer
 # Import Mask RCNN
 # pylint: disable=import-error
 sys.path.append(ROOT_DIR)  # To find local version of the library
@@ -52,7 +52,7 @@ COCO_WEIGHTS_PATH = os.path.join(ROOT_DIR, "mask_rcnn_coco.h5")
 
 # Directory to save logs and model checkpoints, if not provided
 # through the command line argument --logs
-DEFAULT_LOGS_DIR = os.path.join(ROOT_DIR, "logs")
+DEFAULT_LOGS_DIR = "../../../../../work/nuig02/cbuckley/logs"
 
 ############################################################
 #  Configurations
@@ -72,12 +72,13 @@ class ParkingConfig(Config):
 
     # Number of classes (including background)
     NUM_CLASSES = 2 + 1 # Empty + Occupied + Background
-
+    GPU_COUNT = 2
     # Number of training steps per epoch
-    STEPS_PER_EPOCH = 5
+    STEPS_PER_EPOCH = 75
+    VALIDATION_STEPS = 50
 
-    # Skip detections with < 90% confidence
-    DETECTION_MIN_CONFIDENCE = 0.1
+    # Skip detections with < 80% confidence
+    DETECTION_MIN_CONFIDENCE = 0.5
 
     # Add image padding
     IMAGE_PADDING = True
@@ -96,7 +97,8 @@ class ParkingConfig(Config):
 
     # The strides of each layer of the FPN Pyramid. These values
     # are based on a Resnet101 backbone.
-    BACKBONE_STRIDES = [4, 8, 16, 32, 64]
+    BACKBONE_STRIDES = [4, 8, 16, 32, 64, 128]
+
 config = ParkingConfig()
 # config.display()
 
@@ -192,10 +194,17 @@ class ParkingDataset(utils.Dataset):
             # Get indexes of pixels inside the polygon and set them to 1
             rr, cc = skimage.draw.polygon(p['all_points_y'], p['all_points_x'])
             mask[rr, cc, i] = 1
+        # # Handle occlusions
+        # occlusion = np.logical_not(mask[:, :, -1]).astype(np.uint8)
+        # for i in range(count-2, -1, -1):
+        #     mask[:, :, i] = mask[:, :, i] * occlusion
+        #     occlusion = np.logical_and(occlusion, np.logical_not(mask[:, :, i]))
+        # # Map class names to class IDs.
+        # class_ids = np.array([self.class_names.index(s[0]) for s in parking])
         class_ids = np.zeros([len(info["polygons"])])
 
         for i, p in enumerate(class_names):
-        #"Type" is the attributes name decided when labeling, etc. 'region_attributes': {Type:'Occupied'}
+        #"name" is the attributes name decided when labeling, etc. 'region_attributes': {name:'a'}
             if p == {'Type': 'Occupied'}:
                 class_ids[i] = 1
             elif p == {'Type': 'Empty'}:
@@ -239,27 +248,26 @@ def get_colors_for_class_ids(class_ids):
 def apply_mask(image, mask, color, alpha=0.5):
     """apply mask to image"""
     for c in range(3):
-        image[:, :, c] = np.where(mask == 1,
-                                  image[:, :, c] *
-                                  (1 - alpha) + alpha * color[c] * 255,
-                                  image[:, :, c])
+        image[:, :, c] = np.where(
+            mask == 1,
+            image[:, :, c] * (1 - alpha) + alpha *color[c] * 255,
+            image[:, :, c]
+        )
     return image
-
 
 def im_augs():
         # random example images
-    IMAGE_DIR = os.path.join(ROOT_DIR, "datasets/parking/val/40287274793_b5e611b015_o.jpg")
-    image = skimage.io.imread(IMAGE_DIR)
-    seq =  iaa.OneOf([
-    iaa.Multiply((0.2, 1.5)),
-    iaa.GaussianBlur(sigma=(1.0, 5.0)),
-    iaa.Affine(scale=(0.5, 1.5)),
-    iaa.Affine(scale={"x": (0.5, 1.5), "y": (0.5, 1.5)}),
-    ])
-    images_aug = seq.augment_image(image)
-    plt.figure()
-    plt.imshow(images_aug) 
-    plt.show()
+
+    # Sometimes(0.5, ...) applies the given augmenter in 50% of all cases,
+    # e.g. Sometimes(0.5, GaussianBlur(0.3)) would blur roughly every second image.
+    # Define our sequence of augmentation steps that will be applied to every image
+    # All augmenters with per_channel=0.5 will sample one value _per image_
+    # in 50% of all cases. In all other cases they will sample new values
+    # _per channel_.
+    seq = iaa.Sequential([iaa.Fliplr(0.5), iaa.GaussianBlur((0, 5.0)),iaa.Grayscale(alpha=(0.0, 1.0))
+                ])
+    # show an image with 8*8 augmented versions of image 0
+    return seq
 
 
 def display_instances(image, boxes, masks, ids, names, scores):
@@ -267,43 +275,52 @@ def display_instances(image, boxes, masks, ids, names, scores):
         take the image and results and apply the mask, box, and Label
     """
     n_instances = boxes.shape[0]
-    colors = get_colors_for_class_ids(ids)
+    colors = (get_colors_for_class_ids(ids))
 
     if not n_instances:
         print('NO INSTANCES TO DISPLAY')
     else:
         assert boxes.shape[0] == masks.shape[-1] == ids.shape[0]
 
-    for i, test in enumerate(colors):
+    for i, color in enumerate(colors):
         if not np.any(boxes[i]):
             continue
 
         y1, x1, y2, x2 = boxes[i]
         label = names[ids[i]]
-        score = scores[i] if scores is not None else None
-        
-        caption = '{} {:.2f}'.format(label, score) if score else label
-        mask = masks[:, :, i]
-        if label == 'Occupied':
-          color = (0, 0, 1)
+        score = scores[i] if scores is not None or scores[i] < 0.85 else None
+        if score < 0.75:
+          break
         else:
-          color = (0,1,0)
-        image = apply_mask(image, mask, color)
-        image = cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
-        image = cv2.putText(
-            image, caption, (x1, y1), cv2.FONT_HERSHEY_COMPLEX, 0.7, color, 2
-        )
+         caption = '{} {:.2f}'.format(label, score) if score else label
+         mask = masks[:, :, i]
+         if label == 'Occupied':
+           color = (0,0,1)
+         else:
+           color = (0.4,0.7,0)
+
+         image = apply_mask(image, mask, color)
+         image = cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+         image = cv2.putText(
+             image, caption, (x1, y1), cv2.FONT_HERSHEY_COMPLEX, 0.7, color, 2
+         )
 
     return image
 
-def predictVideo():
+def predictVideo(model):
     import cv2
-    # dataset_train = ParkingDataset()
-    # dataset_train.load_parking(args.dataset, "train")
-    # dataset_train.prepare()
-    video_path="../1008937934-preview.mp4"
+    #dataset_train = ParkingDataset()
+    #dataset_train.load_parking(args.dataset, "train")
+    #dataset_train.prepare()
+    class_names = ['BG', 'Occupied', 'Empty']
+    video_path="../VID_20190327_174457.mp4"
+    inference_config = InferenceConfig()
+    model = modellib.MaskRCNN(mode="inference", 
+                            config=inference_config,
+                            model_dir=MODEL_DIR)
+    model_path = args.weights
+    model.load_weights(model_path, by_name=True)
     # Video capture
-    class_names=['BG', 'Occupied', 'Empty']
     vcapture = cv2.VideoCapture(video_path)
     width = int(vcapture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(vcapture.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -325,10 +342,8 @@ def predictVideo():
             # Detect objects
             r = model.detect([image], verbose=0)[0]
             # Color splash
-            visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'], 
-                                class_names, r['scores'], colors=get_colors_for_class_ids(r['class_ids']))
             frame = display_instances(image, r['rois'], r['masks'], r['class_ids'], 
-                                class_names, r['scores']) 
+                                 class_names, r['scores']) 
            
             # Add image to video writer
             vwriter.write(frame)
@@ -336,18 +351,12 @@ def predictVideo():
     vwriter.release()
     print("Saved to ", file_name)
     end = timer()
-    elapsed = end - start
-    
+    elapsed = end-start
     print("Total time = ", elapsed)
     print("Frames analysed per second = ", count/elapsed)
 
 
-
-def predict(weights, loops):
-
-    # dataset_train = ParkingDataset()
-    # dataset_train.load_parking(args.dataset, "train")
-    # dataset_train.prepare()
+def predict(weights,loops):
     avg = 0
     class_names=['BG', 'Occupied', 'Empty']
     inference_config = InferenceConfig()
@@ -356,42 +365,38 @@ def predict(weights, loops):
                             model_dir=MODEL_DIR)
     model_path = (weights)
     model.load_weights(model_path, by_name=True)
-    IMAGE_DIR = os.path.join(ROOT_DIR, "datasets/parking/train/IMG_20190218_165352.jpg")
 
-    for i in range (0,loops):
-        image = skimage.io.imread(IMAGE_DIR)
-        # image = skimage.io.imread(os.path.join(IMAGE_DIR, random.choice(os.listdir(IMAGE_DIR))))
-
-        
-        # image = cv2.resize(image,(640,480))
-        # Run detection
-        # blurer = imgaug.augmenters.GaussianBlur(5.0)
-        # image = blurer.augment_image(image)
+    IMAGE_DIR = "../datasets/parking/train/"
+    #image = skimage.io.imread(IMAGE_DIR)
+    for i in range(0,loops):
+        image = skimage.io.imread(os.path.join(IMAGE_DIR, random.choice(os.listdir(IMAGE_DIR))))
+    # Run detection
+    # blurer = imgaug.augmenters.GaussianBlur(5.0)
+    # image = blurer.augment_image(image)
         start = timer()
-        results = model.detect([image], verbose=2) 
+        results = model.detect([image], verbose=1) 
         end = timer()
         elapsed = end - start
-        avg = avg + elapsed
+        if elapsed < 2:
+         avg = avg + elapsed
         r = results[0]
-    #     mrcnn = model.run_graph([image], [
-    #     ("proposals", model.keras_model.get_layer("ROI").output),
-    #     ("probs", model.keras_model.get_layer("mrcnn_class").output),
-    #     ("deltas", model.keras_model.get_layer("mrcnn_bbox").output),
-    #     ("masks", model.keras_model.get_layer("mrcnn_mask").output),
-    #     ("detections", model.keras_model.get_layer("mrcnn_detection").output),
-    # ])
-    #     det_class_ids = mrcnn['detections'][0, :, 4].astype(np.int32)
-    #     det_count = np.where(det_class_ids == 0)[0][0]
-    #     det_class_ids = det_class_ids[:det_count]
+#     mrcnn = model.run_graph([image], [
+#     ("proposals", model.keras_model.get_layer("ROI").output),
+#     ("probs", model.keras_model.get_layer("mrcnn_class").output),
+#     ("deltas", model.keras_model.get_layer("mrcnn_bbox").output),
+#     ("masks", model.keras_model.get_layer("mrcnn_mask").output),
+#     ("detections", model.keras_model.get_layer("mrcnn_detection").output),
+# ])
+#     det_class_ids = mrcnn['detections'][0, :, 4].astype(np.int32)
+#     det_count = np.where(det_class_ids == 0)[0][0]
+#     det_class_ids = det_class_ids[:det_count]
 
-        # print("{} detections: {}".format(
-        # det_count, np.array(dataset_train.class_names)[det_class_ids]))
-        visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'], 
-                                    class_names, r['scores'], colors=get_colors_for_class_ids(r['class_ids']))
-        print("Inference Time: ", elapsed)
+    # print("{} detections: {}".format(
+    # det_count, np.array(dataset_train.class_names)[det_class_ids]))
+    #visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'], 
+                                 #dataset_train.class_names, r['scores'], colors=get_colors_for_class_ids(r['class_ids']))
+        print("Inference time: ", elapsed)
     print("Average time: ", avg/loops)
-
-        
 
 
 def get_ax(rows=1, cols=1, size=8):
@@ -407,51 +412,97 @@ def get_ax(rows=1, cols=1, size=8):
 
 
 def train(model):
-    # tensorboard = TensorBoard(log_dir='logs/{}'.format(time()))
+    tensorboard = TensorBoard(log_dir='../logs/{}'.format(time()), write_graph=True)
     """Train the model."""
     # Training dataset.
     dataset_train = ParkingDataset()
-    dataset_train.load_parking(args.dataset, "val")
+    dataset_train.load_parking(args.dataset, "train")
     dataset_train.prepare()
 
     # Validation dataset
-    # dataset_val = ParkingDataset()
-    # dataset_val.load_parking(args.dataset, "val")
-    # dataset_val.prepare()
+    dataset_val = ParkingDataset()
+    dataset_val.load_parking(args.dataset, "val")
+    dataset_val.prepare()
 
-    
+    # Image augmentation (light but constant)
+    augmentation = iaa.OneOf([
+        iaa.Fliplr(0.5),
+        iaa.Multiply((0.8, 1.5)),
+        #iaa.GaussianBlur(sigma=(0.0, 5.0)),
+        #iaa.Affine(scale=(0.5, 1.5)),
+        #iaa.Affine(scale={"x": (0.5, 1.5), "y": (0.5, 1.5)}),
+        iaa.OneOf([ ## brightness or contrast
+            iaa.Multiply((0.9, 1.1)),
+            iaa.ContrastNormalization((0.9, 1.1)),
+        ]),
+        iaa.OneOf([ ## blur or sharpen
+            iaa.GaussianBlur(sigma=(0.0, 0.1)),
+            iaa.Sharpen(alpha=(0.0, 0.1)),
+        ]),
+    ])
     # Load and display random samples
     # "2013-04-13_09_15_03#034.jpg"
-    image_ids = np.random.choice(dataset_train.image_ids,1)
-    for image_id in image_ids:
-        print(image_id)
-        image = dataset_train.load_image(image_id)
-        mask, class_ids = dataset_train.load_mask(image_id)
-        visualize.display_top_masks(image, mask, class_ids, dataset_train.class_names)
+    # image_ids = np.random.choice(dataset_train.image_ids,1)
+    # for image_id in image_ids:
+    #     print(image_id)
+    #     image = dataset_train.load_image(image_id)
+    #     mask, class_ids = dataset_train.load_mask(image_id)
+    #     visualize.display_top_masks(image, mask, class_ids, dataset_train.class_names)
 
     # *** This training schedule is an example. Update to your needs ***
     # Since we're using a very small dataset, and starting from
     # COCO trained weights, we don't need to train too long. Also,
     # no need to train all layers, just the heads should do it.
-    # print("Training network heads")
+
+    LEARNING_RATE = 0.001
+    print("Training network heads")
+    
+    model.train(dataset_train, dataset_val,
+                learning_rate=LEARNING_RATE*5,
+                epochs=68,
+                layers='heads',
+                augmentation=augmentation)
+    custom_callbacks=tensorboard
+
+    history = model.keras_model.history.history
+    
     # model.train(dataset_train, dataset_val,
     #             learning_rate=config.LEARNING_RATE,
-    #             epochs=5,
-    #             layers="heads")
+    #             epochs=100,
+    #             layers='heads',
+    #             augmentation=None)    
+    # history = model.keras_model.history.history
+    # custom_callbacks=tensorboard
     
-    # custom_callbacks=[tensorboard]
-    # model.train(dataset_train, dataset_val, 
-    #         learning_rate=1e-6 / 10,
-    #         epochs=7, 
-    #         layers="all",
-    #         augmentation = augmentation)
+    # model.train(dataset_train, dataset_val,
+    #             learning_rate=LEARNING_RATE/10,
+    #             epochs=300,
+    #             layers='heads',
+    #             augmentation=augmentation,)
+    # history = model.keras_model.history.history
+    # custom_callbacks=tensorboard
+    """
+    model.train(dataset_train, dataset_val,
+                learning_rate=LEARNING_RATE*5,
+                epochs=50,
+                layers='heads',
+                augmentation=None)
+    history = model.keras_model.history.history
+    """
+    new_history = model.keras_model.history.history
+    for k in new_history: history[k] = history[k] + new_history[k]
+
+    best_epoch = np.argmin(history["val_loss"])
+    score = history["val_loss"][best_epoch]
+    print('Best Epoch:', best_epoch+1, 'val_loss:',{score})
 
 # Save weights
 # Typically not needed because callbacks save after every epoch
 # Uncomment to save manually
-    # model_path = os.path.join(MODEL_DIR, "mask_rcnn_parking.h5")
-    # model.keras_model.save_weights(model_path)
-
+"""
+    model_path = os.path.join(MODEL_DIR, "mask_rcnn_parking.h5")
+    model.keras_model.save_weights(model_path)
+"""
 
 ############################################################
 #  Training
@@ -548,11 +599,14 @@ if __name__ == '__main__':
     if args.command == "train":
         train(model)
     elif args.command == "predict":
-        predict(args.weights, int(args.loops))
+        predict(args.weights,int(args.loops))
+    elif args.command == "video":
+        predictVideo(args.weights)
     elif args.command == "aug":
-        predictVideo()
+        display_augs()
     else:
         print("'{}' is not recognized. "
-              "Use 'train' or 'predict'".format(args.command))
+              "Use 'train' or 'splash'".format(args.command))
+
 
 
